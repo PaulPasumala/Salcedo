@@ -73,6 +73,9 @@ public class MonthlyProfitCalculatorFX extends Application {
     private TilePane sellGrid;
     private boolean isSellViewActive = false;
 
+    // TRACK CAMERA STATE
+    private boolean isCameraRunning = false;
+
     @Override
     public void start(Stage stage) {
         this.primaryStage = stage;
@@ -86,39 +89,57 @@ public class MonthlyProfitCalculatorFX extends Application {
             System.out.println("OCR Warning: " + e.getMessage());
         }
 
-        // Initialize Main Layout Container
-        mainLayout = new BorderPane();
-        mainLayout.setStyle("-fx-background-color: #e5e5e5;");
+        // MOVED LAYOUT INIT TO initializeMainUI() TO FIX RE-LOGIN CRASH
 
-        // Create Content Area
-        contentArea = new StackPane();
-        contentArea.setPadding(new Insets(30));
-        contentArea.setAlignment(Pos.TOP_CENTER);
-
-        // START IN FULL SCREEN
         stage.setFullScreen(true);
-        // THIS REMOVES THE ANNOYING MESSAGE
         stage.setFullScreenExitHint("");
 
-        // Start with LOGIN
+        // IMPORTANT: Stop camera when closing window with X button
+        stage.setOnCloseRequest(e -> {
+            stopCameraSystem();
+            Platform.exit();
+        });
+
         showLoginScreen(stage);
     }
 
     @Override
     public void stop() throws Exception {
         super.stop();
-        if (scannerService != null) scannerService.stopCamera();
+        stopCameraSystem();
+    }
+
+    // --- CAMERA HELPERS ---
+    private void startCameraSystem(ScannerService.RunnableOnResult onScan) {
+        if (!isCameraRunning) {
+            scannerService.startCamera(onScan);
+            isCameraRunning = true;
+            if(systemStatusLabel != null) {
+                systemStatusLabel.setText("Scanner Active");
+                systemStatusLabel.setTextFill(Color.LIME);
+            }
+        }
+    }
+
+    private void stopCameraSystem() {
+        if (isCameraRunning) {
+            scannerService.stopCamera();
+            isCameraRunning = false;
+            if(systemStatusLabel != null) {
+                systemStatusLabel.setText("Scanner Paused");
+                systemStatusLabel.setTextFill(Color.ORANGE);
+            }
+        }
     }
 
     // ==========================================
-    //    NEW SPLIT-SCREEN LOGIN & REGISTER
+    //    LOGIN & REGISTER
     // ==========================================
 
     private void showLoginScreen(Stage stage) {
         HBox rootSplit = new HBox();
         rootSplit.setFillHeight(true);
 
-        // --- LEFT SIDE (Branding) ---
         VBox leftSide = new VBox(20);
         leftSide.setAlignment(Pos.CENTER);
         leftSide.setStyle(STYLE_BG_BLUE + "-fx-border-color: black; -fx-border-width: 0 4 0 0;");
@@ -137,13 +158,11 @@ public class MonthlyProfitCalculatorFX extends Application {
 
         leftSide.getChildren().addAll(brandTitle, brandSub);
 
-        // --- RIGHT SIDE (Login Form + Floating Exit Button) ---
         StackPane rightSideContainer = new StackPane();
         rightSideContainer.setStyle(STYLE_BG_OFF_WHITE);
         HBox.setHgrow(rightSideContainer, Priority.ALWAYS);
         rightSideContainer.setPrefWidth(stage.getWidth() / 2);
 
-        // 1. The Centered Login Card
         VBox centerContent = new VBox();
         centerContent.setAlignment(Pos.CENTER);
         centerContent.setPadding(new Insets(50));
@@ -178,16 +197,17 @@ public class MonthlyProfitCalculatorFX extends Application {
         cardContent.getChildren().addAll(userField, passField, errorLabel, btnLogin, btnGoToRegister);
         centerContent.getChildren().add(loginCard);
 
-        // 2. The Exit Button (Floating Top Right)
         Button btnExit = new Button("EXIT SYSTEM");
         btnExit.setStyle("-fx-background-color: white; -fx-text-fill: red; -fx-font-weight: bold; -fx-font-size: 12; -fx-cursor: hand; -fx-border-color: red; -fx-border-width: 2; -fx-padding: 10 20 10 20;");
-        btnExit.setOnAction(e -> Platform.exit());
+        btnExit.setOnAction(e -> {
+            stopCameraSystem();
+            Platform.exit();
+        });
 
         StackPane.setAlignment(btnExit, Pos.TOP_RIGHT);
         StackPane.setMargin(btnExit, new Insets(30));
 
         rightSideContainer.getChildren().addAll(centerContent, btnExit);
-
         rootSplit.getChildren().addAll(leftSide, rightSideContainer);
 
         Scene scene = new Scene(rootSplit);
@@ -200,7 +220,6 @@ public class MonthlyProfitCalculatorFX extends Application {
         HBox rootSplit = new HBox();
         rootSplit.setFillHeight(true);
 
-        // --- LEFT SIDE ---
         VBox leftSide = new VBox(20);
         leftSide.setAlignment(Pos.CENTER);
         leftSide.setStyle(STYLE_BG_BLUE + "-fx-border-color: black; -fx-border-width: 0 4 0 0;");
@@ -213,7 +232,6 @@ public class MonthlyProfitCalculatorFX extends Application {
         brandTitle.setStyle("-fx-effect: dropshadow(one-pass-box, black, 10, 10, 0, 0);");
         leftSide.getChildren().add(brandTitle);
 
-        // --- RIGHT SIDE ---
         VBox rightSide = new VBox(30);
         rightSide.setAlignment(Pos.CENTER);
         rightSide.setStyle(STYLE_BG_OFF_WHITE);
@@ -281,8 +299,15 @@ public class MonthlyProfitCalculatorFX extends Application {
     // ==========================================
 
     private void initializeMainUI() {
-        scannerService.startCamera(barcode -> Platform.runLater(() -> handleBarcodeScan(barcode)));
+        // *** FIX: RE-INITIALIZE LAYOUTS HERE FOR EVERY NEW SESSION ***
+        mainLayout = new BorderPane();
+        mainLayout.setStyle("-fx-background-color: #e5e5e5;");
 
+        contentArea = new StackPane();
+        contentArea.setPadding(new Insets(30));
+        contentArea.setAlignment(Pos.TOP_CENTER);
+
+        // No Auto-Start Camera
         VBox sidebar = createSidebar();
         mainLayout.setLeft(sidebar);
 
@@ -365,6 +390,10 @@ public class MonthlyProfitCalculatorFX extends Application {
     // --- DASHBOARD ---
     private void showDashboard() {
         isSellViewActive = false;
+
+        // NO AUTO START. The camera stays OFF here.
+        if(isCameraRunning) stopCameraSystem();
+
         VBox dashboardLayout = new VBox(20);
         dashboardLayout.setAlignment(Pos.TOP_CENTER);
         dashboardLayout.setFillWidth(true);
@@ -373,11 +402,11 @@ public class MonthlyProfitCalculatorFX extends Application {
         topSection.setAlignment(Pos.CENTER_LEFT);
         topSection.setPrefHeight(160);
 
-        // Status Card
+        // Status Card (Standard - NO BUTTON)
         VBox statusCard = createSketchCard("Status");
         statusCard.setPrefWidth(400); statusCard.setPrefHeight(160);
         VBox statusContent = (VBox) statusCard.getChildren().get(1);
-        Text statusDesc = new Text("Scanner Active. Database Connected.");
+        Text statusDesc = new Text("Database Connected. Scanner Standby.");
         statusDesc.setFont(FONT_BODY_BOLD);
         statusContent.getChildren().add(statusDesc);
 
@@ -451,17 +480,17 @@ public class MonthlyProfitCalculatorFX extends Application {
 
         Label nameLbl = new Label(p.getName());
         nameLbl.setFont(FONT_BODY_BOLD);
-        nameLbl.setStyle("-fx-text-fill: black;"); // This one was working
+        nameLbl.setStyle("-fx-text-fill: black;");
         nameLbl.setWrapText(true); nameLbl.setTextAlignment(javafx.scene.text.TextAlignment.CENTER);
 
         Label priceLbl = new Label("₱" + String.format("%,.2f", p.getPrice()));
         priceLbl.setFont(Font.font("Arial", FontWeight.BOLD, 18));
-        priceLbl.setStyle("-fx-text-fill: black;"); // FORCE BLACK VIA CSS
+        priceLbl.setStyle("-fx-text-fill: black;");
 
         int currentStock = dataManager.getStockCount(p.getId());
         Label stockLbl = new Label(String.valueOf(currentStock));
         stockLbl.setFont(Font.font("Monospaced", FontWeight.BLACK, 32));
-        stockLbl.setStyle("-fx-text-fill: black;"); // FORCE BLACK VIA CSS
+        stockLbl.setStyle("-fx-text-fill: black;");
 
         HBox actions = new HBox(10);
         actions.setAlignment(Pos.CENTER);
@@ -471,7 +500,6 @@ public class MonthlyProfitCalculatorFX extends Application {
             if (dataManager.sellByOneClick(p.getId())) {
                 int newCount = Integer.parseInt(stockLbl.getText()) - 1;
                 stockLbl.setText(String.valueOf(newCount));
-                // Ensuring no logic reverts color to red here
                 double[] fins = dataManager.getFinancialSummary();
                 if(totalSalesLabel != null) totalSalesLabel.setText("₱" + String.format("%,.2f", fins[0]));
             } else { showAlert("Stock Error", "No items to sell!"); }
@@ -479,6 +507,10 @@ public class MonthlyProfitCalculatorFX extends Application {
 
         Button btnRestock = createSketchButton("+", true);
         btnRestock.setOnAction(e -> {
+            if(!isCameraRunning) {
+                showAlert("Scanner Standby", "Go to 'Add & Sell' -> 'Add Product' to use scanner.");
+                return;
+            }
             currentRestockTarget = p;
             showAlert("Ready to Scan", "Scan a new item now to add it to '" + p.getName() + "'");
         });
@@ -556,12 +588,12 @@ public class MonthlyProfitCalculatorFX extends Application {
 
         Label priceLbl = new Label("₱" + String.format("%,.2f", p.getPrice()));
         priceLbl.setFont(Font.font("Arial", FontWeight.BOLD, 18));
-        priceLbl.setStyle("-fx-text-fill: black;"); // FORCE BLACK VIA CSS
+        priceLbl.setStyle("-fx-text-fill: black;");
 
         int stock = dataManager.getStockCount(p.getId());
         Label stockLbl = new Label("Stock: " + stock);
         stockLbl.setFont(Font.font("Monospaced", FontWeight.BOLD, 18));
-        stockLbl.setStyle("-fx-text-fill: black;"); // FORCE BLACK VIA CSS
+        stockLbl.setStyle("-fx-text-fill: black;");
 
         Button btnQR = createSketchButton("GET QR", true);
         btnQR.setStyle(btnQR.getStyle() + "-fx-font-size: 12; -fx-padding: 8 15 8 15;");
@@ -621,12 +653,12 @@ public class MonthlyProfitCalculatorFX extends Application {
 
         Label priceLbl = new Label("₱" + String.format("%,.2f", p.getPrice()));
         priceLbl.setFont(Font.font("Arial", FontWeight.BOLD, 14));
-        priceLbl.setStyle("-fx-text-fill: black;"); // FORCE BLACK VIA CSS
+        priceLbl.setStyle("-fx-text-fill: black;");
 
         int stock = dataManager.getStockCount(p.getId());
         Label stockLbl = new Label("Stock: " + stock);
         stockLbl.setFont(Font.font("Monospaced", 14));
-        stockLbl.setStyle("-fx-text-fill: black;"); // FORCE BLACK VIA CSS
+        stockLbl.setStyle("-fx-text-fill: black;");
 
         content.getChildren().addAll(imgBox, nameLbl, priceLbl, stockLbl);
 
@@ -649,16 +681,26 @@ public class MonthlyProfitCalculatorFX extends Application {
 
         ((VBox)titleCard.getChildren().get(1)).getChildren().add(sub);
 
-        Button btnAdd = createSketchButton("ADD", true); btnAdd.setPrefSize(200, 150); btnAdd.setOnAction(e -> showAddProductView());
+        Button btnAdd = createSketchButton("ADD", true);
+        btnAdd.setPrefSize(200, 150);
+        btnAdd.setOnAction(e -> {
+            // Stop camera (if running) before switching to Add view
+            stopCameraSystem();
+            showAddProductView();
+        });
+
         Button btnSell = createSketchButton("SELL", false); btnSell.setPrefSize(200, 150); btnSell.setOnAction(e -> showSellProductView());
         HBox actions = new HBox(30, btnAdd, btnSell); actions.setAlignment(Pos.CENTER);
         container.getChildren().addAll(titleCard, actions);
         setContent(container);
     }
 
-    // --- ADD PRODUCT VIEW ---
+    // --- ADD PRODUCT VIEW (Manual Camera Logic) ---
     private void showAddProductView() {
         isSellViewActive = false;
+
+        // NOTE: Camera is NOT started automatically here.
+
         VBox container = new VBox(20); container.setAlignment(Pos.TOP_CENTER); container.setMaxWidth(600);
         Button btnBack = new Button("← GO BACK");
         btnBack.setStyle("-fx-background-color: transparent; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 14; -fx-cursor: hand;");
@@ -671,20 +713,40 @@ public class MonthlyProfitCalculatorFX extends Application {
         TextField priceField = createSketchInput("Price (e.g., 50.00)");
         TextField stockField = createSketchInput("Initial Stock (e.g., 10)");
 
-        StackPane cameraContainer = new StackPane(); cameraContainer.setPrefSize(200, 150); cameraContainer.setStyle("-fx-background-color: black;");
-        ImageView cameraView = new ImageView(); cameraView.setFitWidth(200); cameraView.setFitHeight(150); cameraView.imageProperty().bind(scannerService.imageProperty());
+        StackPane cameraContainer = new StackPane();
+        cameraContainer.setPrefSize(200, 150);
+        cameraContainer.setStyle("-fx-background-color: black;");
+
+        ImageView cameraView = new ImageView();
+        cameraView.setFitWidth(200);
+        cameraView.setFitHeight(150);
+
         cameraContainer.getChildren().add(cameraView);
 
         AtomicReference<String> capturedPath = new AtomicReference<>(null);
+
         Button captureBtn = createSketchButton("SNAP PHOTO", false);
         captureBtn.setOnAction(e -> {
             try {
-                Image snapshot = cameraView.getImage();
-                File out = new File("product_images/prod_" + System.currentTimeMillis() + ".png");
-                out.getParentFile().mkdirs();
-                ImageIO.write(SwingFXUtils.fromFXImage(snapshot, null), "png", out);
-                capturedPath.set(out.getAbsolutePath());
-                cameraView.imageProperty().unbind(); cameraView.setImage(snapshot);
+                // Logic: If camera OFF -> Start it. If ON -> Capture.
+                if(!isCameraRunning) {
+                    startCameraSystem(barcode -> Platform.runLater(() -> handleBarcodeScan(barcode)));
+                    cameraView.imageProperty().bind(scannerService.imageProperty());
+                    captureBtn.setText("TAKE PICTURE");
+                } else {
+                    // Camera is ON, so take picture
+                    Image snapshot = cameraView.getImage();
+                    if(snapshot != null) {
+                        File out = new File("product_images/prod_" + System.currentTimeMillis() + ".png");
+                        out.getParentFile().mkdirs();
+                        ImageIO.write(SwingFXUtils.fromFXImage(snapshot, null), "png", out);
+                        capturedPath.set(out.getAbsolutePath());
+
+                        cameraView.imageProperty().unbind(); // Freeze image
+                        cameraView.setImage(snapshot);
+                        captureBtn.setText("RETAKE");
+                    }
+                }
             } catch(Exception ex) { ex.printStackTrace(); }
         });
 
@@ -701,9 +763,14 @@ public class MonthlyProfitCalculatorFX extends Application {
                     if(stock > 0) {
                         for(int k=0; k<stock; k++) dataManager.addUniqueItem(n + "-" + System.currentTimeMillis() + "-" + k, n);
                     }
+
+                    // *** STOP CAMERA HERE ***
+                    stopCameraSystem();
+
                     showAlert("Success", "Product Saved with " + stock + " stock!");
                     nameField.clear(); priceField.clear(); stockField.clear(); capturedPath.set(null);
-                    cameraView.imageProperty().bind(scannerService.imageProperty());
+                    cameraView.setImage(null); // Clear view
+                    captureBtn.setText("SNAP PHOTO"); // Reset button text
                 }
             } catch(Exception ex) { showAlert("Error", "Invalid Input"); }
         });
@@ -880,7 +947,10 @@ public class MonthlyProfitCalculatorFX extends Application {
         nav.getChildren().add(createNavButton("Expenses", this::showExpenses));
         nav.getChildren().add(createNavButton("Profit", this::showProfit));
 
-        Button btnLogout = createNavButton("Logout", () -> showLoginScreen(primaryStage));
+        Button btnLogout = createNavButton("Logout", () -> {
+            stopCameraSystem();
+            showLoginScreen(primaryStage);
+        });
         btnLogout.setStyle(btnLogout.getStyle() + "-fx-text-fill: red;");
         nav.getChildren().add(btnLogout);
 
@@ -890,8 +960,8 @@ public class MonthlyProfitCalculatorFX extends Application {
         status.setAlignment(Pos.CENTER_LEFT);
         status.setPadding(new Insets(20));
         status.setStyle("-fx-background-color: black; -fx-border-color: black; -fx-border-width: 4 0 0 0;");
-        Circle indicator = new Circle(6, Color.LIME);
-        systemStatusLabel = new Label("System Online");
+        Circle indicator = new Circle(6, isCameraRunning ? Color.LIME : Color.GRAY);
+        systemStatusLabel = new Label(isCameraRunning ? "Scanner Active" : "Scanner Paused");
         systemStatusLabel.setTextFill(Color.WHITE);
         systemStatusLabel.setFont(FONT_BODY_BOLD);
         status.getChildren().addAll(indicator, systemStatusLabel);
