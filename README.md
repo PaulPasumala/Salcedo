@@ -1,142 +1,117 @@
-🌐 Tutorial: Auto-Connecting Java Apps over Wi-Fi/VPN
-Goal: We want a Client device (like a phone or second laptop) to automatically find and connect to a Database hosted on your main Laptop, without typing any IP addresses manually.
+📡 Automatic Network Discovery & Database Connection
+PawTrack features a custom-built Automatic Network Discovery System that allows client devices (such as a second laptop or mobile phone) to seamlessly find and connect to the main host's database without manual IP configuration.
 
-Part 1: The Toolkit (The Ingredients)
-Before looking at the code, you need to understand the tools you are using and what role they play.
+This system works over local Wi-Fi, Hotspots, and Virtual Networks like Radmin VPN.
 
-1. 🛠️ XAMPP (The Server Infrastructure)
-What it is: A software package that installs a web server (Apache) and a database server (MySQL) on your computer.
+🚀 Key Features
+Zero-Config Connection: Clients automatically find the database server.
 
-Role: It turns your laptop into a Server. Without it, your laptop is just a personal computer. With XAMPP running, your laptop becomes a "place" that other computers can visit to get data.
+Role Detection: The app intelligently decides if it is a Host (Server) or a Client based on the environment.
 
-Key Action: You must click "Start" on MySQL in the XAMPP Control Panel.
+Failover Redundancy:
 
-2. 🗄️ MySQL (The Filing Cabinet)
-What it is: The actual database software inside XAMPP.
+Local Check: Checks for a local database first.
 
-Role: It stores your user_accounts, pets, and appointments.
+Fast Track: Checks a list of known/hardcoded IP addresses.
 
-Key Action: Your Java app sends SQL commands (like SELECT * FROM users) to MySQL, and MySQL sends back the data.
+Broadcast Discovery: "Shouts" to the entire network to find the host.
 
-3. 🛡️ Radmin VPN (The Virtual Cable)
-What it is: Virtual Private Network software.
+Manual Override: Prompts the user if all else fails.
 
-Role: Normally, devices on different networks (e.g., Laptop on Home Wi-Fi, Friend on their Mobile Data) cannot talk to each other. Radmin VPN creates a "Virtual Room." Anyone who joins this room thinks they are plugged into the same router cable.
+🛠️ Tech Stack & Tools
+Language: Java (Swing/AWT)
 
-Key Action: It gives your laptop a special IP address (e.g., 26.115.66.121) that is visible to anyone else in the Radmin group.
+Database: MySQL (via XAMPP)
 
-4. ☕ Java (The Application)
-What it is: Your programming language.
+Networking:
 
-Role: It runs the logic to "shout" across the network, "listen" for shouts, and "dial" the database.
+UDP Sockets: For broadcasting discovery messages.
 
-Part 2: The Logic (How it Works)
-We will break this down into a story of two characters: The Host (Laptop) and The Client (Other PC/Phone).
+JDBC: For establishing the database connection.
 
-Step 1: The "Identity Crisis" (Am I a Host?)
-File: src/PawTrackLogin.java
+Radmin VPN: (Optional) For connecting devices across different networks.
 
-When the app starts, it doesn't know which device it is running on. It performs a self-test.
+🧠 How It Works (The Logic)
+The system follows a 4-step "Handshake" process to establish a connection.
 
-The Test: It tries to connect to a database inside itself (localhost).
+Step 1: Identity Check (Host vs. Client)
+On startup, the application checks for a local MySQL instance running on localhost.
 
-Scenario A (Host): The connection works! The app says, "I have the database. I am the Server."
+If Found: The app becomes the HOST. It opens UDP Port 9999 and listens for incoming requests.
 
-Action: It starts listening for others (DatabaseDiscovery.startServerMode()).
+If Not Found: The app becomes a CLIENT. It begins searching for the Host.
 
-Scenario B (Client): The connection fails. The app says, "I have no database. I am a Client."
+Step 2: The Search (UDP Broadcast)
+The Client sends a UDP packet containing the message "WHO_HAS_DATABASE" to the broadcast address 255.255.255.255. This effectively "shouts" the message to every device on the local network.
 
-Action: It starts looking for the server (DatabaseDiscovery.findServer()).
+Step 3: The Handshake
+The Host receives the "WHO_HAS_DATABASE" packet.
 
-Code Reference: This happens inside attemptAutoDiscovery() in PawTrackLogin.java.
+The Host identifies the sender's IP address.
 
-Step 2: The Search (The "Shout")
-File: src/DatabaseDiscovery.java
+The Host replies directly to that IP with the message "I_HAVE_DATABASE".
 
-Now the Client needs to find the Host. It uses a technique called UDP Broadcast.
+Step 4: Connection
+The Client receives the reply.
 
-The Client's Move: It cannot call the Host directly because it doesn't know the Host's number (IP address).
+The Client extracts the Host's IP address from the packet.
 
-The Solution: It uses a "Megaphone." It broadcasts the message "WHO_HAS_DATABASE" to the entire network address 255.255.255.255.
+The DBConnector class updates its connection string to point to this new IP (e.g., jdbc:mysql://192.168.1.5:3306/pawpatrol_db).
 
-Real World Equivalent: Walking into a dark room and shouting, "Is anyone here?"
+The application connects, and the user can log in.
 
-Code Reference:
+📂 Code Structure
+1. src/PawTrackLogin.java (The Manager)
+Role: Orchestrates the startup sequence.
 
-Java
+Key Method: attemptAutoDiscovery() - Decides whether to start the Server listener or the Client searcher.
 
-String message = "WHO_HAS_DATABASE";
-DatagramPacket request = new DatagramPacket(..., InetAddress.getByName("255.255.255.255"), ...);
-socket.send(request);
-Step 3: The Discovery (The "Reply")
-File: src/DatabaseDiscovery.java
+Fail-safe: Contains the scanKnownHosts() list for faster connections on known networks.
 
-The Host's Move: The Host laptop is quietly listening on Port 9999.
+2. src/DatabaseDiscovery.java (The Communicator)
+Role: Handles the raw UDP networking.
 
-Hearing the Shout: It receives the packet "WHO_HAS_DATABASE".
+Key Methods:
 
-The Reply: It looks at the return address (The Client's IP) and sends a direct message back: "I_HAVE_DATABASE".
+startServerMode(): Listens on Port 9999 and sends replies.
 
-Client Receives: The Client gets the message. It looks at the sender's info and realizes: "Aha! The sender is at IP 26.115.66.121."
+findServer(listener): Broadcasts the search packet and waits for a response.
 
-Code Reference:
+3. src/DBConnector.java (The Switchboard)
+Role: Manages the active JDBC connection.
 
-Java
+Key Logic: It holds a static serverIP variable. By default, it points to localhost. When a server is found, this variable is updated to the Host's IP, redirecting all database traffic.
 
-// Server Side
-if (message.equals("WHO_HAS_DATABASE")) {
-    // Reply "I_HAVE_DATABASE"
-    socket.send(response);
-}
-Step 4: The Connection (The Handshake)
-File: src/DBConnector.java
+🚦 Usage Guide
+Setting up the Host (The Laptop)
+Install XAMPP and start Apache and MySQL.
 
-Now the Client knows the IP address. It needs to save it so the rest of the app can use it.
+Ensure your pawpatrol_db is imported into phpMyAdmin.
 
-Saving the IP: The Client calls DBConnector.setServerIP("26.115.66.121").
+(Optional) Open Radmin VPN and create/join a network.
 
-Updating the Link: Inside DBConnector, a variable serverIP is updated.
+Run the PawTrack application.
 
-Connecting: Now, when you try to log in, the app builds a connection URL using that specific IP instead of localhost.
+Console Output: ✅ Local Database Found! I am the HOST.
 
-Code Reference:
+Console Output: 📡 Server Mode Started on Port 9999
 
-Java
+Setting up the Client (The Other Device)
+Ensure the device is on the same Wi-Fi or Radmin VPN network as the Host.
 
-public static Connection getLocalConnection() {
-    // Uses the discovered IP
-    String targetHost = (serverIP != null) ? serverIP : LOCAL_HOST;
-    String url = "jdbc:mysql://" + targetHost + ":" + ...;
-    return DriverManager.getConnection(url, ...);
-}
-Part 3: How to Test It (Step-by-Step)
-Here is how you actually verify this is working using your tools.
+Run the PawTrack application.
 
-Prepare the Host (Laptop):
+Console Output: ❌ No Local Database. I am a CLIENT.
 
-Open Radmin VPN and create a network.
+Console Output: 📡 Client: Broadcasting search...
 
-Open XAMPP and click "Start" on Apache and MySQL.
+Wait for the handshake.
 
-Run your Java App (PawTrackLogin). It should print: "Server Mode Started on Port 9999".
+Popup: ✅ Connected to Host: 26.x.x.x
 
-Prepare the Client (Other PC/VM):
-
-Connect this device to the same Radmin VPN network.
-
-Make sure no XAMPP is running on this device.
-
-Run the Java App.
-
-Watch the Magic:
-
-The Client App will pause for a second (searching).
-
-It should pop up a message: "✅ Connected to Host: 26.x.x.x".
-
-You can now log in using the database credentials stored on the Host laptop.
-
-Troubleshooting Tips for Beginners
-Firewall: Windows Firewall loves to block "Broadcasts" (Java shouting). If it fails, try turning off the firewall temporarily on both devices to test.
-
-MySQL Permissions: By default, the root user in MySQL only allows connections from localhost. You might need to go into phpMyAdmin and create a user that allows access from % (Any Host).
+🔧 Troubleshooting
+Issue	Possible Cause	Solution
+"Could not find Host"	Firewall Blocking	Turn off Windows Firewall on both Host and Client temporarily.
+"Connection Refused"	MySQL Permissions	Ensure your MySQL user (root) allows access from % (Any Host), not just localhost.
+No "I_HAVE_DATABASE" reply	Different Networks	Ensure both devices are on the exact same Wi-Fi or Radmin Network.
+App Freezes on Start	Timeout too long	The discovery timeout is set to 5 seconds. Be patient or check the console logs.
